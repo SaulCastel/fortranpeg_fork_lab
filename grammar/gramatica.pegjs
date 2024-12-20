@@ -59,7 +59,9 @@ expresiones
     return new n.String(val.replace(/['"]/g, ''), isCase);
   }
   / "(" _ opciones _ ")"
-  / corchetes "i"?
+  / chars:clase isCase:"i"? {
+    return new n.Clase(chars, isCase)
+  }
   / "."
   / "!."
 
@@ -77,34 +79,14 @@ conteo = "|" _ (numero / id:identificador) _ "|"
 // delimitador =  "," _ expresion
 
 // Regla principal que analiza corchetes con contenido
-corchetes
-    = "[" contenido:(rango / contenido)+ "]" {
-        return `Entrada válida: [${input}]`;
-    }
+clase
+  = "[" @contenidoClase+ "]"
 
-// Regla para validar un rango como [A-Z]
-rango
-    = inicio:caracter "-" fin:caracter {
-        if (inicio.charCodeAt(0) > fin.charCodeAt(0)) {
-            throw new Error(`Rango inválido: [${inicio}-${fin}]`);
-
-        }
-        return `${inicio}-${fin}`;
-    }
-
-// Regla para caracteres individuales
-caracter
-    = [a-zA-Z0-9_ ] { return text()}
-
-// Coincide con cualquier contenido que no incluya "]"
-contenido
-    = (corchete / texto)+
-
-corchete
-    = "[" contenido "]"
-
-texto
-    = [^\[\]]+
+contenidoClase
+  = bottom:$[^\[\]] "-" top:$[^\[\]] {
+    return new n.Rango(bottom, top);
+  }
+  / $[^\[\]]
 
 literales
   = '"' @stringDobleComilla* '"'
