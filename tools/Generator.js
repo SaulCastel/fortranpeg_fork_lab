@@ -1,5 +1,6 @@
-// Generar clases para AST
-// Este archivo genera las clases necesarias para implementar el patrón visitante con Typescript
+// Generar clases para CST
+// Este archivo genera las clases necesarias para implementar el patrón visitante, usando JsDoc
+// porque no nos dejan usar typescript
 
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -11,35 +12,79 @@ const visitorDestination = '../src/visitor/Visitor.js';
 
 let codeString = `
 // Auto-generated
-export default class Visitor {
-`;
-for (const node of Object.keys(nodes)) {
-    codeString += `\tvisit${node}(node) {}\n`;
-}
-codeString += `}`;
 
+/** @typedef {import('./Node.js').default} Node*/
+
+/** @template T */
+export default class Visitor {
+    ${Object.keys(nodes)
+        .map(
+            (node) => `
+        /**
+         * @abstract
+         * @param {Node} node
+         * @returns {T}
+         */
+        visit${node}(node){
+            throw new Error('Implement in subclass');
+        }`
+        )
+        .join('\n\t')}
+}
+`;
 writeFileSync(path.join(__dirname, visitorDestination), codeString);
 console.log('Generated visitor Interface');
 
 codeString = `
 // Auto-generated
-import Node from './Node.js';
-`;
-for (const [name, args] of Object.entries(nodes)) {
-    codeString += `
-export class ${name} extends Node {
-    constructor(${args.join(', ')}) {
-        super();
-        ${args.map((arg) => `this.${arg} = ${arg};`).join('\n\t\t')}
+
+/**
+ * @template T
+ * @typedef {import('./Visitor.js').default<T>} Visitor
+ */
+/**
+ * @typedef {import('./Node.js').default} Node
+ */
+
+${Object.entries(nodes)
+    .map(([node, args]) => {
+        const declaration = `
+/**
+ * @implements {Node}
+ */
+export class ${node} {
+    /**
+     *
+    ${Object.entries(args)
+        .map(
+            ([arg, type]) =>
+                ` * @param {${
+                    type.startsWith('?') ? type.slice(1) + '=' : type
+                }} ${arg}`
+        )
+        .join('\n\t')}
+     */
+    constructor(${Object.keys(args).join(', ')}) {
+        ${Object.keys(args)
+            .map((arg) => `this.${arg} = ${arg};`)
+            .join('\n\t\t')}
     }
 
+    /**
+     * @template T
+     * @param {Visitor<T>} visitor
+     * @returns {T}
+     */
     accept(visitor) {
-        return visitor.visit${name}(this);
+        return visitor.visit${node}(this);
     }
 }
     `;
-    console.log(`Generating ${name} node`);
-}
+        console.log(`Generated ${node} class`);
+        return declaration;
+    })
+    .join('\n')}
+`;
 
 writeFileSync(path.join(__dirname, classesDestination), codeString);
 console.log('Done!');
