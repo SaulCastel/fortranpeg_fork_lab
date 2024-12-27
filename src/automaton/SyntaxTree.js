@@ -1,65 +1,80 @@
-class Node {
-    constructor() {
-        this.anulable = null;
-    }
-
-    /**
-     * @returns {number[]}
-     */
-    primeraPos() {}
-
-    /**
-     * @returns {number[]}
-     */
-    ultimaPos() {}
-
-    /**
-     * @returns {boolean}
-     */
-    anulable() {}
-}
-
-export class Hoja extends Node {
-    /** @type {number} */
-    pos;
-    /** @type {string} */
-    val;
+export class Node {
+    /** @type {Node=} */
+    c1;
+    /** @type {Node=} */
+    c2;
+    /** @type {number[]} */
+    first;
+    /** @type {number[]} */
+    last;
+    /** @type {boolean} */
+    nullable;
 
     /**
      *
+     * @param {*} wrappe
+     */
+    constructor(wrappe = undefined) {
+        this.first = [];
+        this.last = [];
+        this.nullable = true;
+        this.wrapee = wrappe;
+    }
+
+    /**
+     * @abstract
+     */
+    calcFirst() {
+        throw new Error('Implement this method');
+    }
+    /**
+     * @abstract
+     */
+    calcLast() {
+        throw new Error('Implement this method');
+    }
+    /**
+     * @abstract
+     */
+    calcNullable() {
+        throw new Error('Implement this method');
+    }
+}
+
+export class Hoja extends Node {
+    /**
+     *
      * @param {string} val
+     * @param {boolean} end
      */
-    constructor(val) {
+    constructor(val, end = false) {
         super();
+        this.pos = 0;
         this.val = val;
+        this.end = end;
     }
 
     /**
-     * @returns {number[]}
+     * @override
      */
-    primeraPos() {
-        return [this.pos];
+    calcFirst() {
+        this.first = [this.pos];
     }
-
     /**
-     * @returns {number[]}
+     * @override
      */
-    ultimaPos() {
-        return [this.pos];
+    calcLast() {
+        this.last = [this.pos];
     }
-
     /**
-     * @returns {boolean}
+     * @override
      */
-    anulable() {
-        return false;
+    calcNullable() {
+        this.nullable = false;
     }
 }
 
 export class Concat extends Node {
-    c1;
-    c2;
-
     /**
      *
      * @param {Node} c1
@@ -72,162 +87,146 @@ export class Concat extends Node {
     }
 
     /**
-     * @returns {number[]}
+     * @override
      */
-    primeraPos() {
-        return this.c1.anulable()
-            ? [...this.c1.primeraPos(), ...this.c2.primeraPos()]
-            : this.c1.primeraPos();
+    calcFirst() {
+        this.first = this.c1.nullable
+            ? [...this.c1.first, ...this.c2.first]
+            : this.c1.first;
     }
-
     /**
-     * @returns {number[]}
+     * @override
      */
-    ultimaPos() {
-        return this.c2.anulable()
-            ? [...this.c1.ultimaPos(), ...this.c2.ultimaPos()]
-            : this.c2.ultimaPos();
+    calcLast() {
+        this.last = this.c2.nullable
+            ? [...this.c1.last, ...this.c2.last]
+            : this.c2.last;
     }
-
     /**
-     * @returns {boolean}
+     * @override
      */
-    anulable() {
-        return this.c1.anulable() && this.c2.anulable();
+    calcNullable() {
+        this.nullable = this.c1.nullable && this.c2.nullable;
     }
 }
 
 export class Or extends Node {
-    c1;
-    c2;
-
     /**
      *
      * @param {Node} c1
      * @param {Node} c2
      */
     constructor(c1, c2) {
+        super();
         this.c1 = c1;
         this.c2 = c2;
     }
-
     /**
-     * @returns {number[]}
+     * @override
      */
-    primeraPos() {
-        return [...this.c1.primeraPos(), ...this.c2.primeraPos()];
+    calcFirst() {
+        this.first = [...this.c1.first, ...this.c2.last];
     }
-
     /**
-     * @returns {number[]}
+     * @override
      */
-    ultimaPos() {
-        return [...this.c1.ultimaPos(), ...this.c2.ultimaPos()];
+    calcLast() {
+        this.last = [...this.c1.last, ...this.c2.last];
     }
-
     /**
-     * @returns {boolean}
+     * @override
      */
-    anulable() {
-        return this.c1.anulable() || this.c2.anulable();
+    calcNullable() {
+        this.nullable = this.c1.nullable || this.c2.nullable;
     }
 }
 
 export class ZeroOrMore extends Node {
-    c1;
-
     /**
      *
      * @param {Node} c1
      */
     constructor(c1) {
+        super();
         this.c1 = c1;
     }
 
     /**
-     * @returns {number[]}
+     * @override
      */
-    primeraPos() {
-        return this.c1.primeraPos();
+    calcFirst() {
+        this.first = this.c1.first;
     }
-
     /**
-     * @returns {number[]}
+     * @override
      */
-    ultimaPos() {
-        return this.c1.ultimaPos();
+    calcLast() {
+        this.last = this.c1.last;
     }
-
     /**
-     * @returns {boolean}
+     * @override
      */
-    anulable() {
-        return true;
+    calcNullable() {
+        this.nullable = true;
     }
 }
 
 export class OneOrMore extends Node {
-    c1;
-
     /**
      *
      * @param {Node} c1
      */
     constructor(c1) {
+        super();
         this.c1 = c1;
     }
 
     /**
-     * @returns {number[]}
+     * @override
      */
-    primeraPos() {
-        return this.c1.primeraPos();
+    calcFirst() {
+        this.first = this.c1.first;
     }
-
     /**
-     * @returns {number[]}
+     * @override
      */
-    ultimaPos() {
-        return this.c1.ultimaPos();
+    calcLast() {
+        this.last = this.c1.last;
     }
-
     /**
-     * @returns {boolean}
+     * @override
      */
-    anulable() {
-        return false;
+    calcNullable() {
+        this.nullable = false;
     }
 }
 
 export class Option extends Node {
-    c1;
-
     /**
      *
      * @param {Node} c1
      */
     constructor(c1) {
+        super();
         this.c1 = c1;
     }
 
     /**
-     * @returns {number[]}
+     * @override
      */
-    primeraPos() {
-        return this.c1.primeraPos();
+    calcFirst() {
+        this.first = this.c1.first;
     }
-
     /**
-     * @returns {number[]}
+     * @override
      */
-    ultimaPos() {
-        return this.c1.ultimaPos();
+    calcLast() {
+        this.last = this.c1.last;
     }
-
     /**
-     * @returns {boolean}
+     * @override
      */
-    anulable() {
-        return true;
+    calcNullable() {
+        this.nullable = true;
     }
 }
