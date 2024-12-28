@@ -19,11 +19,13 @@ export class Producciones {
      * @param {string} id
 	 * @param {Opciones} expr
 	 * @param {string=} alias
+	 * @param {boolean=} start
      */
-    constructor(id, expr, alias) {
+    constructor(id, expr, alias, start) {
         this.id = id;
 		this.expr = expr;
 		this.alias = alias;
+		this.start = start;
     }
 
     /**

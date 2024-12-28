@@ -1,6 +1,9 @@
 import * as monaco from 'https://cdn.jsdelivr.net/npm/monaco-editor@0.50.0/+esm';
 import { parse } from './parser/gramatica.js';
-import { generateTokenizer } from './tokenizer/utils.js';
+import generateParser from './compiler/utils.js';
+
+/** @typedef {import('./visitor/CST.js').Producciones} Produccion*/
+/** @typedef {import('./visitor/Visitor.js').default<string>} Visitor*/
 
 export let ids = [];
 export let usos = [];
@@ -25,6 +28,7 @@ const salida = monaco.editor.create(document.getElementById('salida'), {
 let decorations = [];
 
 // Analizar contenido del editor
+/** @type {Produccion[]} */
 let cst;
 const analizar = () => {
     const entrada = editor.getValue();
@@ -98,7 +102,7 @@ button.addEventListener('click', () => {
         return;
     }
     let url;
-    generateTokenizer(cst)
+    generateParser(cst)
         .then((fileContents) => {
             const blob = new Blob([fileContents], { type: 'text/plain' });
             url = URL.createObjectURL(blob);

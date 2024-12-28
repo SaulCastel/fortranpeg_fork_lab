@@ -23,6 +23,7 @@ gramatica
     if (noEncontrados.length > 0) {
         errores.push(new ErrorReglas("Regla no encontrada: " + noEncontrados[0]));
     }
+    prods[0].start = true;
     return prods;
   }
 

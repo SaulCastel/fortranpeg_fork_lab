@@ -1,6 +1,11 @@
 /** @type {{[node: string]: {[arg: string]: string}}} */
 const nodes = {
-    Producciones: { id: 'string', expr: 'Opciones', alias: '?string' },
+    Producciones: {
+        id: 'string',
+        expr: 'Opciones',
+        alias: '?string',
+        start: '?boolean',
+    },
     Opciones: { exprs: 'Union[]' },
     Union: { exprs: 'Expresion[]' },
     Expresion: { expr: 'Node', label: '?string', qty: '?string' },
