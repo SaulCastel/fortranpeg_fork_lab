@@ -1,6 +1,6 @@
 import * as CST from '../visitor/CST.js';
 import * as Template from '../Templates.js';
-import { getFnId, getReturnType } from './utils.js';
+import { getActionId, getReturnType, getExprId, getRuleId } from './utils.js';
 
 /** @typedef {import('../visitor/Visitor.js').default<string>} Visitor */
 /** @typedef {import('../visitor/Visitor.js').ActionTypes} ActionTypes*/
@@ -45,9 +45,9 @@ export default class FortranTranslator {
         return Template.main({
             beforeContains: node.globalCode?.before ?? '',
             afterContains: node.globalCode?.after ?? '',
-            startingRuleId: node.rules[0].id,
+            startingRuleId: getRuleId(node.rules[0].id),
             startingRuleType: getReturnType(
-                getFnId(node.rules[0].id, this.currentChoice),
+                getActionId(node.rules[0].id, 0),
                 this.actionReturnTypes
             ),
             actions: this.actions,
@@ -68,7 +68,7 @@ export default class FortranTranslator {
         const ruleTranslation = Template.rule({
             id: node.id,
             returnType: getReturnType(
-                getFnId(node.id, this.currentChoice),
+                getActionId(node.id, this.currentChoice),
                 this.actionReturnTypes
             ),
             exprDeclarations: node.expr.exprs.flatMap((election, i) =>
@@ -79,7 +79,7 @@ export default class FortranTranslator {
                         return `${
                             expr instanceof CST.Identificador
                                 ? getReturnType(
-                                      getFnId(expr.id, this.currentChoice),
+                                      getActionId(expr.id, i),
                                       this.actionReturnTypes
                                   )
                                 : 'character(len=:), allocatable'
@@ -100,7 +100,11 @@ export default class FortranTranslator {
      */
     visitOpciones(node) {
         return Template.election({
-            exprs: node.exprs.map((expr) => expr.accept(this)),
+            exprs: node.exprs.map((expr) => {
+                const translation = expr.accept(this);
+                this.currentChoice++;
+                return translation;
+            }),
         });
     }
 
@@ -120,14 +124,14 @@ export default class FortranTranslator {
         let neededExprs;
         /** @type {string} */
         let resultExpr;
-        const currFnId = getFnId(this.currentRule, this.currentChoice++);
+        const currFnId = getActionId(this.currentRule, this.currentChoice);
         if (currFnId in this.actionReturnTypes) {
             neededExprs = exprVars.filter(
                 (_, i) => matchExprs[i].labeledExpr.label
             );
             resultExpr = Template.fnResultExpr({
-                fnId: getFnId(this.currentRule, this.currentChoice),
-                exprs: neededExprs.length > 0 ? neededExprs : exprVars,
+                fnId: getActionId(this.currentRule, this.currentChoice),
+                exprs: neededExprs.length > 0 ? neededExprs : [],
             });
         } else {
             neededExprs = exprVars.filter((_, i) => matchExprs[i].pluck);
@@ -135,10 +139,15 @@ export default class FortranTranslator {
                 exprs: neededExprs.length > 0 ? neededExprs : exprVars,
             });
         }
+        this.currentExpr = 0;
 
         if (node.action) this.actions.push(node.action.accept(this));
         return Template.union({
-            exprs: node.exprs.map((expr) => expr.accept(this)),
+            exprs: node.exprs.map((expr) => {
+                const translation = expr.accept(this);
+                if (expr instanceof CST.Pluck) this.currentExpr++;
+                return translation;
+            }),
             startingRule: this.translatingStart,
             resultExpr,
         });
@@ -165,13 +174,33 @@ export default class FortranTranslator {
      * @this {Visitor}
      */
     visitAnnotated(node) {
-        if (typeof node.qty === 'string') {
-            switch (node.qty) {
-                case '+':
-                    if (node.expr instanceof CST.Identificador) {
-                    }
-                    break;
+        if (node.qty && typeof node.qty === 'string') {
+            if (node.expr instanceof CST.Identificador) {
+                // TODO: Implement quantifiers (i.e., ?, *, +)
+                return `${getExprId(
+                    this.currentChoice,
+                    this.currentExpr
+                )} = ${node.expr.accept(this)}`;
             }
+            return Template.strExpr({
+                quantifier: node.qty,
+                expr: node.expr.accept(this),
+                destination: getExprId(this.currentChoice, this.currentExpr),
+            });
+        } else if (node.qty) {
+            // TODO: Implement repetitions (e.g., |3|, |1..3|, etc...)
+            throw new Error('Repetitions not implemented.');
+        } else {
+            if (node.expr instanceof CST.Identificador) {
+                return `${getExprId(
+                    this.currentChoice,
+                    this.currentExpr
+                )} = ${node.expr.accept(this)}`;
+            }
+            return Template.strExpr({
+                expr: node.expr.accept(this),
+                destination: getExprId(this.currentChoice, this.currentExpr),
+            });
         }
     }
 
@@ -199,14 +228,14 @@ export default class FortranTranslator {
         return Template.action({
             ruleId: this.currentRule,
             choice: this.currentChoice,
-            signature: Object.keys(node.arguments),
-            argDeclarations: Object.entries(node.arguments).map(
+            signature: Object.keys(node.params),
+            returnType: node.returnType,
+            paramDeclarations: Object.entries(node.params).map(
                 ([label, ruleId]) =>
-                    `${
-                        this.actionReturnTypes[
-                            getFnId(ruleId, this.currentChoice)
-                        ]
-                    } :: ${label}`
+                    `${getReturnType(
+                        getActionId(ruleId, this.currentChoice),
+                        this.actionReturnTypes
+                    )} :: ${label}`
             ),
             code: node.code,
         });
@@ -239,7 +268,7 @@ export default class FortranTranslator {
         if (ranges.length !== 0) {
             characterClass = [...characterClass, ...ranges];
         }
-        return characterClass.join(' .or. '); // acceptSet(['a','b','c']) .or. acceptRange('0','9') .or. acceptRange('A','Z')
+        return `(${characterClass.join(' .or. ')})`; // acceptSet(['a','b','c']) .or. acceptRange('0','9') .or. acceptRange('A','Z')
     }
 
     /**
@@ -255,7 +284,7 @@ export default class FortranTranslator {
      * @this {Visitor}
      */
     visitIdentificador(node) {
-        return `peg_${node.id}()`;
+        return getRuleId(node.id) + '()';
     }
 
     /**

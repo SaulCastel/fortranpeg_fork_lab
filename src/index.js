@@ -1,8 +1,8 @@
 import * as monaco from 'https://cdn.jsdelivr.net/npm/monaco-editor@0.50.0/+esm';
 import { parse } from './parser/gramatica.js';
-import generateParser from './compiler/utils.js';
+import { generateParser } from './compiler/utils.js';
 
-/** @typedef {import('./visitor/CST.js').Producciones} Produccion*/
+/** @typedef {import('./visitor/CST.js').Grammar} Grammar*/
 /** @typedef {import('./visitor/Visitor.js').default<string>} Visitor*/
 
 export let ids = [];
@@ -28,13 +28,19 @@ const salida = monaco.editor.create(document.getElementById('salida'), {
 let decorations = [];
 
 // Analizar contenido del editor
-/** @type {Produccion[]} */
+/** @type {Grammar} */
 let cst;
+const noCatch = false;
 const analizar = () => {
     const entrada = editor.getValue();
     ids.length = 0;
     usos.length = 0;
     errores.length = 0;
+    if (noCatch) {
+        cst = parse(entrada);
+        salida.setValue('Análisis Exitoso');
+        return;
+    }
     try {
         cst = parse(entrada);
 

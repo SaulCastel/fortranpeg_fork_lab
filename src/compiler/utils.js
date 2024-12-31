@@ -31,7 +31,7 @@ export async function generateParser(cst) {
  * @param {number} choice
  * @returns
  */
-export function getFnId(ruleId, choice) {
+export function getActionId(ruleId, choice) {
     return `peg_${ruleId}_f${choice}`;
 }
 
@@ -43,4 +43,23 @@ export function getFnId(ruleId, choice) {
  */
 export function getReturnType(functionId, actionReturnTypes) {
     return actionReturnTypes[functionId] ?? 'character(len=:), allocatable';
+}
+
+/**
+ *
+ * @param {number} choice
+ * @param {number} index
+ * @returns
+ */
+export function getExprId(choice, index) {
+    return `expr_${choice}_${index}`;
+}
+
+/**
+ *
+ * @param {string} rule
+ * @returns
+ */
+export function getRuleId(rule) {
+    return `peg_${rule}`;
 }

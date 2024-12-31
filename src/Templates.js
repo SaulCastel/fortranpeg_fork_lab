@@ -14,8 +14,13 @@ export const main = (data) => `
 !auto-generated
 module parser
     implicit none
-    character(len=:), allocatable, private :: input, lexeme
-    integer, private :: savePoint, cursor
+    character(len=:), allocatable, private :: input
+    integer, private :: savePoint, lexemeStart, cursor
+
+    interface toStr
+        module procedure intToStr
+        module procedure strToStr
+    end interface
     
     ${data.beforeContains}
 
@@ -30,7 +35,7 @@ module parser
         input = str
         cursor = 1
 
-        res = peg_${data.startingRuleId}()
+        res = ${data.startingRuleId}()
     end function parse
 
     ${data.rules.join('\n')}
@@ -47,7 +52,7 @@ module parser
             accept = .false.
             return
         end if
-        lexeme = consume(len(str))
+        cursor = cursor + len(str)
         accept = .true.
     end function acceptString
 
@@ -59,7 +64,7 @@ module parser
             accept = .false.
             return
         end if
-        lexeme = consume(1)
+        cursor = cursor + 1
         accept = .true.
     end function acceptRange
 
@@ -71,7 +76,7 @@ module parser
             accept = .false.
             return
         end if
-        lexeme = consume(1)
+        cursor = cursor + 1
         accept = .true.
     end function acceptSet
 
@@ -82,7 +87,7 @@ module parser
             accept = .false.
             return
         end if
-        lexeme = consume(1)
+        cursor = cursor + 1
         accept = .true.
     end function acceptPeriod
 
@@ -93,23 +98,36 @@ module parser
             accept = .false.
             return
         end if
-        lexeme = ''
         accept = .true.
     end function acceptEOF
 
-    function consume(offset) result(substr)
-        integer :: offset
-        character(len=*) :: substr
+    function consumeInput() result(substr)
+        character(len=:), allocatable :: substr
 
-        substr = input(cursor:cursor + offset - 1)
-        cursor = cursor + offset
-    end function consume
+        substr = input(lexemeStart:cursor - 1)
+    end function consumeInput
 
     subroutine pegError()
         print '(A,I1,A)', "Error at ", cursor, ": '"//input(cursor:cursor)//"'"
 
         call exit(1)
     end subroutine pegError
+
+    function intToStr(int) result(cast)
+        integer :: int
+        character(len=31) :: tmp
+        character(len=:), allocatable :: cast
+
+        write(tmp, '(I0)') int
+        cast = trim(adjustl(tmp))
+    end function intToStr
+
+    function strToStr(str) result(cast)
+        character(len=:), allocatable :: str
+        character(len=:), allocatable :: cast
+
+        cast = str
+    end function strToStr
 end module parser
 `;
 
@@ -176,18 +194,36 @@ export const union = (data) => `
 /**
  *
  * @param {{
- *
+ *  expr: string;
+ *  destination: string
+ *  quantifier?: string;
  * }} data
  * @returns
  */
-export const oneOrMore = (data) => `
+export const strExpr = (data) => {
+    if (!data.quantifier) {
+        return `
                 lexemeStart = cursor
-                if (.not. acceptString('bar')) cycle
+                if(.not. ${data.expr}) cycle
+                ${data.destination} = consumeInput()
+        `;
+    }
+    switch (data.quantifier) {
+        case '+':
+            return `
+                lexemeStart = cursor
+                if (.not. ${data.expr}) cycle
                 do while (.not. cursor > len(input))
-                    if (.not. acceptString('bar')) exit
+                    if (.not. ${data.expr}) exit
                 end do
-                expr00 = consumeInput()
-`;
+                ${data.destination} = consumeInput()
+            `;
+        default:
+            throw new Error(
+                `'${data.quantifier}' quantifier needs implementation`
+            );
+    }
+};
 
 /**
  *
@@ -218,14 +254,19 @@ export const fnResultExpr = (data) => `
  *  ruleId: string;
  *  choice: number
  *  signature: string[];
- *  argDeclarations: string[];
+ *  returnType: string;
+ *  paramDeclarations: string[];
  *  code: string;
  * }} data
  * @returns
  */
-export const action = (data) => `
-    function peg_${data.ruleId}_f${data.choice}(${data.signature.join(', ')})
-        ${data.argDeclarations.join('\n')}
+export const action = (data) => {
+    const signature = data.signature.join(', ');
+    return `
+    function peg_${data.ruleId}_f${data.choice}(${signature}) result(res)
+        ${data.paramDeclarations.join('\n')}
+        ${data.returnType} :: res
         ${data.code}
     end function peg_${data.ruleId}_f${data.choice}
-`;
+    `;
+};

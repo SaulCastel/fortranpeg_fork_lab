@@ -20,10 +20,10 @@ const nodes = {
     Predicate: {
         returnType: 'string',
         code: 'string',
-        arguments: '?{ [label: string]: string }',
+        params: '{ [label: string]: string }',
     },
     Pluck: { labeledExpr: 'Label', pluck: '?boolean' },
-    Label: { annotatedExpr: 'Annotated', label: '?boolean' },
+    Label: { annotatedExpr: 'Annotated', label: '?string' },
     Annotated: { expr: 'Node', qty: '?(string|Node)', text: '?boolean' },
     Assertion: { assertion: 'Node' },
     NegAssertion: { assertion: 'Node' },
