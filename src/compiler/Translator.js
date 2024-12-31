@@ -1,94 +1,217 @@
 import * as CST from '../visitor/CST.js';
+import * as Template from '../Templates.js';
+import { getFnId, getReturnType } from './utils.js';
 
-/**
- * @typedef {import('../visitor/Visitor.js').default<string>} Visitor
- */
+/** @typedef {import('../visitor/Visitor.js').default<string>} Visitor */
+/** @typedef {import('../visitor/Visitor.js').ActionTypes} ActionTypes*/
+
 /**
  * @implements {Visitor}
  */
 export default class FortranTranslator {
+    /** @type {ActionTypes} */
+    actionReturnTypes;
+    /** @type {string[]} */
+    actions;
+    /** @type {boolean} */
+    translatingStart;
+    /** @type {string} */
+    currentRule;
+    /** @type {number} */
+    currentChoice;
+    /** @type {number} */
+    currentExpr;
+
     /**
-     * @param {CST.Producciones} node
+     *
+     * @param {ActionTypes} returnTypes
+     */
+    constructor(returnTypes) {
+        this.actionReturnTypes = returnTypes;
+        this.actions = [];
+        this.translatingStart = false;
+        this.currentRule = '';
+        this.currentChoice = 0;
+        this.currentExpr = 0;
+    }
+
+    /**
+     * @param {CST.Grammar} node
      * @this {Visitor}
      */
-    visitProducciones(node) {
-        return `
-        function peg_${node.id}() result(accept)
-            logical :: accept
-            integer :: i
+    visitGrammar(node) {
+        const rules = node.rules.map((rule) => rule.accept(this));
 
-            accept = .false.
-            ${node.expr.accept(this)}
-            ${
-                node.start
-                    ? `
-                    if (.not. acceptEOF()) then
-                        return
-                    end if
-                    `
-                    : ''
-            }
-            accept = .true.
-        end function peg_${node.id}
-        `;
+        return Template.main({
+            beforeContains: node.globalCode?.before ?? '',
+            afterContains: node.globalCode?.after ?? '',
+            startingRuleId: node.rules[0].id,
+            startingRuleType: getReturnType(
+                getFnId(node.rules[0].id, this.currentChoice),
+                this.actionReturnTypes
+            ),
+            actions: this.actions,
+            rules,
+        });
     }
+
+    /**
+     * @param {CST.Regla} node
+     * @this {Visitor}
+     */
+    visitRegla(node) {
+        this.currentRule = node.id;
+        this.currentChoice = 0;
+
+        if (node.start) this.translatingStart = true;
+
+        const ruleTranslation = Template.rule({
+            id: node.id,
+            returnType: getReturnType(
+                getFnId(node.id, this.currentChoice),
+                this.actionReturnTypes
+            ),
+            exprDeclarations: node.expr.exprs.flatMap((election, i) =>
+                election.exprs
+                    .filter((expr) => expr instanceof CST.Pluck)
+                    .map((label, j) => {
+                        const expr = label.labeledExpr.annotatedExpr.expr;
+                        return `${
+                            expr instanceof CST.Identificador
+                                ? getReturnType(
+                                      getFnId(expr.id, this.currentChoice),
+                                      this.actionReturnTypes
+                                  )
+                                : 'character(len=:), allocatable'
+                        } :: expr_${i}_${j}`;
+                    })
+            ),
+            expr: node.expr.accept(this),
+        });
+
+        this.translatingStart = false;
+
+        return ruleTranslation;
+    }
+
     /**
      * @param {CST.Opciones} node
      * @this {Visitor}
      */
     visitOpciones(node) {
-        const template = `
-        do i = 0, ${node.exprs.length}
-            select case(i)
-                ${node.exprs
-                    .map(
-                        (expr, i) => `
-                        case(${i})
-                            ${expr.accept(this)}
-                            exit
-                        `
-                    )
-                    .join('\n')}
-            case default
-                return
-            end select
-        end do
-        `;
-        return template;
+        return Template.election({
+            exprs: node.exprs.map((expr) => expr.accept(this)),
+        });
     }
+
     /**
      * @param {CST.Union} node
      * @this {Visitor}
      */
     visitUnion(node) {
-        return node.exprs.map((expr) => expr.accept(this)).join('\n');
+        const matchExprs = node.exprs.filter(
+            (expr) => expr instanceof CST.Pluck
+        );
+        const exprVars = matchExprs.map(
+            (_, i) => `expr_${this.currentChoice}_${i}`
+        );
+
+        /** @type {string[]} */
+        let neededExprs;
+        /** @type {string} */
+        let resultExpr;
+        const currFnId = getFnId(this.currentRule, this.currentChoice++);
+        if (currFnId in this.actionReturnTypes) {
+            neededExprs = exprVars.filter(
+                (_, i) => matchExprs[i].labeledExpr.label
+            );
+            resultExpr = Template.fnResultExpr({
+                fnId: getFnId(this.currentRule, this.currentChoice),
+                exprs: neededExprs.length > 0 ? neededExprs : exprVars,
+            });
+        } else {
+            neededExprs = exprVars.filter((_, i) => matchExprs[i].pluck);
+            resultExpr = Template.strResultExpr({
+                exprs: neededExprs.length > 0 ? neededExprs : exprVars,
+            });
+        }
+
+        if (node.action) this.actions.push(node.action.accept(this));
+        return Template.union({
+            exprs: node.exprs.map((expr) => expr.accept(this)),
+            startingRule: this.translatingStart,
+            resultExpr,
+        });
     }
+
     /**
-     * @param {CST.Expresion} node
+     * @param {CST.Pluck} node
      * @this {Visitor}
      */
-    visitExpresion(node) {
-        const condition = node.expr.accept(this);
-        switch (node.qty) {
-            case '+':
-                return `
-                if (.not. (${condition})) then
-                    cycle
-                end if
-                do while (.not. cursor > len(input))
-                    if (.not. (${condition})) then
-                        exit
-                    end if
-                end do
-                `;
-            default:
-                return `
-                if (.not. (${condition})) then
-                    cycle
-                end if
-                `;
+    visitPluck(node) {
+        return node.labeledExpr.accept(this);
+    }
+
+    /**
+     * @param {CST.Label} node
+     * @this {Visitor}
+     */
+    visitLabel(node) {
+        return node.annotatedExpr.accept(this);
+    }
+
+    /**
+     * @param {CST.Annotated} node
+     * @this {Visitor}
+     */
+    visitAnnotated(node) {
+        if (typeof node.qty === 'string') {
+            switch (node.qty) {
+                case '+':
+                    if (node.expr instanceof CST.Identificador) {
+                    }
+                    break;
+            }
         }
     }
+
+    /**
+     * @param {CST.Assertion} node
+     * @this {Visitor}
+     */
+    visitAssertion(node) {
+        throw new Error('Method not implemented.');
+    }
+
+    /**
+     * @param {CST.NegAssertion} node
+     * @this {Visitor}
+     */
+    visitNegAssertion(node) {
+        throw new Error('Method not implemented.');
+    }
+
+    /**
+     * @param {CST.Predicate} node
+     * @this {Visitor}
+     */
+    visitPredicate(node) {
+        return Template.action({
+            ruleId: this.currentRule,
+            choice: this.currentChoice,
+            signature: Object.keys(node.arguments),
+            argDeclarations: Object.entries(node.arguments).map(
+                ([label, ruleId]) =>
+                    `${
+                        this.actionReturnTypes[
+                            getFnId(ruleId, this.currentChoice)
+                        ]
+                    } :: ${label}`
+            ),
+            code: node.code,
+        });
+    }
+
     /**
      * @param {CST.String} node
      * @this {Visitor}
@@ -96,6 +219,7 @@ export default class FortranTranslator {
     visitString(node) {
         return `acceptString('${node.val}')`;
     }
+
     /**
      * @param {CST.Clase} node
      * @this {Visitor}
@@ -117,6 +241,7 @@ export default class FortranTranslator {
         }
         return characterClass.join(' .or. '); // acceptSet(['a','b','c']) .or. acceptRange('0','9') .or. acceptRange('A','Z')
     }
+
     /**
      * @param {CST.Rango} node
      * @this {Visitor}
@@ -124,6 +249,7 @@ export default class FortranTranslator {
     visitRango(node) {
         return `acceptRange('${node.bottom}', '${node.top}')`;
     }
+
     /**
      * @param {CST.Identificador} node
      * @this {Visitor}
@@ -131,6 +257,7 @@ export default class FortranTranslator {
     visitIdentificador(node) {
         return `peg_${node.id}()`;
     }
+
     /**
      * @param {CST.Punto} node
      * @this {Visitor}
@@ -138,11 +265,12 @@ export default class FortranTranslator {
     visitPunto(node) {
         return 'acceptPeriod()';
     }
+
     /**
      * @param {CST.Fin} node
      * @this {Visitor}
      */
     visitFin(node) {
-        return 'acceptEOF()';
+        return 'if (.not. acceptEOF()) cycle';
     }
 }

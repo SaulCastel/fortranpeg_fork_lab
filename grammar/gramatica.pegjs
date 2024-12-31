@@ -12,7 +12,7 @@
 }}
 
 gramatica
-  = _ prods:producciones+ _ {
+  = _ code:globalCode? prods:regla+ _ {
     let duplicados = ids.filter((item, index) => ids.indexOf(item) !== index);
     if (duplicados.length > 0) {
         errores.push(new ErrorReglas("Regla duplicada: " + duplicados[0]));
@@ -24,13 +24,18 @@ gramatica
         errores.push(new ErrorReglas("Regla no encontrada: " + noEncontrados[0]));
     }
     prods[0].start = true;
-    return prods;
+    return new n.Grammar(prods, code);
   }
 
-producciones
+globalCode
+  = "{" _ before:$(. !"contains")+ _ "contains" _ after:$[^}]* "}" {
+    return after ? {before, after} : {before}
+  }
+
+regla
   = _ id:identificador _ alias:(literales)? _ "=" _ expr:opciones (_";")? {
     ids.push(id);
-    return new n.Producciones(id, expr, alias);
+    return new n.Regla(id, expr, alias);
   }
 
 opciones
@@ -39,20 +44,45 @@ opciones
   }
 
 union
-  = expr:expresion rest:(_ @expresion !(_ literales? _ "=") )* {
-    return new n.Union([expr, ...rest]);
+  = expr:parsingExpression rest:(_ @parsingExpression !(_ literales? _ "=") )* action:predicate? {
+    const exprs = [expr, ...rest];
+    const labels = exprs.filter(expr => expr.label);
+    if (labels.length > 0) {
+      action.arguments = labels.reduce((args, expr) => {
+        args[expr.label] = expr.expr instanceof n.Identificador ? expr.expr.id : '';
+      }, {});
+    }
+    return new n.Union(exprs, action);
   }
 
-expresion
-  = label:$(etiqueta/varios)? _ expr:expresiones _ qty:$([?+*]/conteo)? {
-    return new n.Expresion(expr, label, qty);
+parsingExpression
+  = pluck
+  / '!' assertion:(match/predicate) {
+    return new n.NegAssertion(assertion);
+  }
+  / '&' assertion:(match/predicate) {
+    return new n.Assertion(assertion);
+  }
+  / "!." {
+    return new n.Fin();
   }
 
-etiqueta = ("@")? _ id:identificador _ ":" (varios)?
+pluck
+  = pluck:"@"? _ expr:label {
+    return new n.Pluck(expr, pluck);
+  }
 
-varios = ("!"/"$"/"@"/"&")
+label
+  = label:(@identificador _ ":")? _ expr:annotated {
+    return new n.Label(expr, label);
+  }
 
-expresiones
+annotated
+  = text:"$"? _ expr:match _ qty:([?+*]/conteo)? {
+    return new n.Annotated(expr, qty, text)
+  }
+
+match
   = id:identificador {
     usos.push(id)
     return new n.Identificador(id);
@@ -67,11 +97,6 @@ expresiones
   / "." {
     return new n.Punto();
   }
-  / "!." {
-    return new n.Fin();
-  }
-
-// conteo = "|" parteconteo _ (_ delimitador )? _ "|"
 
 conteo
   = "|" _ (numero / id:identificador) _ "|"
@@ -79,13 +104,16 @@ conteo
   / "|" _ (numero / id:identificador)? _ "," _ opciones _ "|"
   / "|" _ (numero / id:identificador)? _ ".." _ (numero / id2:identificador)? _ "," _ opciones _ "|"
 
-// parteconteo = identificador
-//             / [0-9]? _ ".." _ [0-9]?
-// 			/ [0-9]
+predicate
+  = "{" _ returnType:predicateReturnType code:$[^}]* "}" {
+    return new n.Predicate(returnType, code)
+  }
 
-// delimitador =  "," _ expresion
+predicateReturnType
+  = t:$[^: ]+ _ "::" _ "res" {
+    return t;
+  }
 
-// Regla principal que analiza corchetes con contenido
 clase
   = "[" @contenidoClase+ "]"
 
